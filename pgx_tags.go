@@ -34,23 +34,29 @@ func SetDBPool(pool *pgxpool.Pool) {
 	dbpool = pool
 }
 
+type GetFieldDesc struct {
+	Numbers []int
+	Columns	string
+}
+
+type SetFieldDesc struct {
+	Numbers []int
+	Columns	string
+	Placeholders string
+	Updates string
+}
+
 type TagQuery struct {
 	Struct interface{}
 	Value reflect.Value
 	Table string
 
-	Fields *FieldDesc
+	SetFields *SetFieldDesc
+	GetFields *GetFieldDesc
 
 	qry_custom string
 	qry_select string
 	qry_insert string
-}
-
-type FieldDesc struct {
-	Placeholders string
-	Columns	string
-	Updates string
-	Numbers []int
 }
 
 /*Never forget to use a pointer as prm*/
@@ -68,7 +74,7 @@ func CreateTagQuery(v interface{}, ignore map[string]int, table string) *TagQuer
 	}
 	for i := 0; i < st.NumField(); i++ {
 		tag := st.Field(i).Tag.Get(struct_tag)
-		if tag == "-" {
+		if tag == "-" || len(tag) == 0 {
 			fieldnumbers = fieldnumbers[:len(fieldnumbers)-1]
 			continue
 		}
@@ -97,7 +103,11 @@ func CreateTagQuery(v interface{}, ignore map[string]int, table string) *TagQuer
 	fieldenum = fieldenum[:len(fieldenum)-1]
 	fieldtags = fieldtags[:len(fieldtags)-1]
 	fieldupdate = fieldupdate[:len(fieldupdate)-1]
-	return &TagQuery{Struct:s.Interface(), Value:s, Table:table, Fields:&FieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}}
+
+	setfielddesc := &SetFieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}
+	getfielddesc := &GetFieldDesc{Columns:fieldtags, Numbers:fieldnumbers}
+
+	return &TagQuery{Struct:s.Interface(), Value:s, Table:table, SetFields:setfielddesc, GetFields:getfielddesc}
 }
 
 /*Never forget to use a pointer as prm*/
@@ -111,7 +121,7 @@ func CreateTagQueryOfFields(v interface{}, fields map[string]int, table string) 
 
 	for i := 0; i < st.NumField(); i++ {
 		tag := st.Field(i).Tag.Get(struct_tag)
-		if tag == "-" {
+		if tag == "-" || len(tag) == 0 {
 			continue
 		}
 		_, finding := fields[tag]
@@ -134,7 +144,60 @@ func CreateTagQueryOfFields(v interface{}, fields map[string]int, table string) 
 	fieldenum = fieldenum[:len(fieldenum)-1]
 	fieldtags = fieldtags[:len(fieldtags)-1]
 	fieldupdate = fieldupdate[:len(fieldupdate)-1]
-	return &TagQuery{Struct:s.Interface(), Value:s, Table:table, Fields:&FieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}}
+
+	fielddesc := &SetFieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}
+	getfielddesc := &GetFieldDesc{Columns:fieldtags, Numbers:fieldnumbers}
+
+	return &TagQuery{Struct:s.Interface(), Value:s, Table:table, SetFields:fielddesc, GetFields:getfielddesc}
+}
+
+/*Never forget to use a pointer as prm*/
+func CreateTagQueryOfSetGetFields(v interface{}, setfields map[string]int, getfields map[string]int ,table string) *TagQuery {
+	s := reflect.ValueOf(v).Elem()
+	st := s.Type()
+
+	var fe_sb, ft_sb, fu_sb, gft_sb strings.Builder
+	fieldcounter := int(0)
+	fieldnumbers := make([]int, len(setfields))
+	gfieldcounter := int(0)
+	gfieldnumbers := make([]int, len(getfields))
+
+	for i := 0; i < st.NumField(); i++ {
+		tag := st.Field(i).Tag.Get(struct_tag)
+		if tag == "-" || len(tag) == 0 {
+			continue
+		}
+		_, finding := setfields[tag]
+		if finding {
+			ft_sb.WriteString(tag)
+			ft_sb.WriteString(",")
+			fieldnumbers[fieldcounter] = i
+			fieldcounter += 1
+			fmt.Fprintf(&fe_sb, placeholder_sep, fieldcounter)
+			fmt.Fprintf(&fu_sb, tag+"="+placeholder_sep, fieldcounter)
+		}
+		_, getfinding := getfields[tag]
+		if getfinding {
+			gft_sb.WriteString(tag)
+			gft_sb.WriteString(",")
+			gfieldnumbers[gfieldcounter] = i
+			gfieldcounter += 1
+		}
+	}
+
+	fieldtags := ft_sb.String()
+	gfieldtags := gft_sb.String()
+	fieldenum := fe_sb.String()
+	fieldupdate := fu_sb.String()
+	fieldenum = fieldenum[:len(fieldenum)-1]
+	fieldtags = fieldtags[:len(fieldtags)-1]
+	gfieldtags = gfieldtags[:len(gfieldtags)-1]
+	fieldupdate = fieldupdate[:len(fieldupdate)-1]
+
+	fielddesc := &SetFieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}
+	getfielddesc := &GetFieldDesc{Columns:gfieldtags, Numbers:gfieldnumbers}
+
+	return &TagQuery{Struct:s.Interface(), Value:s, Table:table, SetFields:fielddesc, GetFields:getfielddesc}
 }
 
 /*Never forget to use a pointer as prm*/
@@ -146,19 +209,76 @@ func (tq *TagQuery) GetCopyWithStruct(v interface{}) *TagQuery {
 	return new_tq
 }
 
+func (tq *TagQuery) RebuildGetFields() {return}
+
+func (tq *TagQuery) RebuildSetFields() {return}
+
+func (tq *TagQuery) RebuildSetGetFields(v interface{}, setfields map[string]int, getfields map[string]int) {
+	s := reflect.ValueOf(v).Elem()
+	tq.Struct = s.Interface()
+	tq.Value = s
+	st := s.Type()
+	var fe_sb, ft_sb, fu_sb, gft_sb strings.Builder
+	fieldcounter := int(0)
+	fieldnumbers := make([]int, len(setfields))
+	gfieldcounter := int(0)
+	gfieldnumbers := make([]int, len(getfields))
+
+	for i := 0; i < st.NumField(); i++ {
+		tag := st.Field(i).Tag.Get(struct_tag)
+		if tag == "-" || len(tag) == 0 {
+			continue
+		}
+		_, finding := setfields[tag]
+		if finding {
+			ft_sb.WriteString(tag)
+			ft_sb.WriteString(",")
+			fieldnumbers[fieldcounter] = i
+			fieldcounter += 1
+			fmt.Fprintf(&fe_sb, placeholder_sep, fieldcounter)
+			fmt.Fprintf(&fu_sb, tag+"="+placeholder_sep, fieldcounter)
+		}
+		_, getfinding := getfields[tag]
+		if getfinding {
+			gft_sb.WriteString(tag)
+			gft_sb.WriteString(",")
+			gfieldnumbers[gfieldcounter] = i
+			gfieldcounter += 1
+		}
+	}
+
+	fieldtags := ft_sb.String()
+	gfieldtags := gft_sb.String()
+	fieldenum := fe_sb.String()
+	fieldupdate := fu_sb.String()
+	fieldenum = fieldenum[:len(fieldenum)-1]
+	fieldtags = fieldtags[:len(fieldtags)-1]
+	gfieldtags = gfieldtags[:len(gfieldtags)-1]
+	fieldupdate = fieldupdate[:len(fieldupdate)-1]
+
+	tq.SetFields = &SetFieldDesc{Placeholders:fieldenum, Columns:fieldtags, Updates:fieldupdate, Numbers:fieldnumbers}
+	tq.GetFields = &GetFieldDesc{Columns:gfieldtags, Numbers:gfieldnumbers}
+}
+
 func (tq *TagQuery) GetReflectedMembersOf(v interface{}) []interface{} {
 	s := reflect.ValueOf(v)
-	mem_slice := make([]interface{}, len(tq.Fields.Numbers))
-	for index, key := range tq.Fields.Numbers {
+	mem_slice := make([]interface{}, len(tq.SetFields.Numbers))
+	for index, key := range tq.SetFields.Numbers {
 		mem_slice[index] = s.Field(key).Interface()
 	}
 	return mem_slice
 }
 
+func (tq *TagQuery) PrintQueries() {
+  fmt.Println(tq.qry_custom)
+  fmt.Println(tq.qry_select)
+  fmt.Println(tq.qry_insert)
+}
+
 func (tq *TagQuery) GetReflectedMembers() []interface{} {
 	s := reflect.ValueOf(tq.Struct)
-	mem_slice := make([]interface{}, len(tq.Fields.Numbers))
-	for index, key := range tq.Fields.Numbers {
+	mem_slice := make([]interface{}, len(tq.SetFields.Numbers))
+	for index, key := range tq.SetFields.Numbers {
 		mem_slice[index] = s.Field(key).Interface()
 	}
 	return mem_slice
@@ -167,8 +287,8 @@ func (tq *TagQuery) GetReflectedMembers() []interface{} {
 /*Never forget to use this function with a pointer*/
 func (tq *TagQuery) GetReflectedAddrOf(v interface{}) (reflect.Value, []interface{}) {
 	s := reflect.ValueOf(v).Elem()
-	addr_slice := make([]interface{}, len(tq.Fields.Numbers))
-	for index, key := range tq.Fields.Numbers {
+	addr_slice := make([]interface{}, len(tq.GetFields.Numbers))
+	for index, key := range tq.GetFields.Numbers {
 		field := s.Field(key)
 		if field.CanAddr() {
 			addr_slice[index] = field.Addr().Interface()
@@ -179,8 +299,8 @@ func (tq *TagQuery) GetReflectedAddrOf(v interface{}) (reflect.Value, []interfac
 
 func (tq *TagQuery) GetReflectedAddr() (reflect.Value, []interface{}) {
 	s := tq.Value
-	addr_slice := make([]interface{}, len(tq.Fields.Numbers))
-	for index, key := range tq.Fields.Numbers {
+	addr_slice := make([]interface{}, len(tq.GetFields.Numbers))
+	for index, key := range tq.GetFields.Numbers {
 		field := s.Field(key)
 		if field.CanAddr() {
 			addr_slice[index] = field.Addr().Interface()
@@ -195,9 +315,9 @@ func (tq *TagQuery) formInsert() {
 		qry_sb.WriteString("insert into ")
 		qry_sb.WriteString(tq.Table)
 		qry_sb.WriteString("(")
-		qry_sb.WriteString(tq.Fields.Columns)
+		qry_sb.WriteString(tq.SetFields.Columns)
 		qry_sb.WriteString(") values (")
-		qry_sb.WriteString(tq.Fields.Placeholders)
+		qry_sb.WriteString(tq.SetFields.Placeholders)
 		qry_sb.WriteString(");")
 		tq.qry_insert = qry_sb.String()
 	}
@@ -208,18 +328,47 @@ func (tq *TagQuery) formInsertCustom(add string) {
 	qry_sb.WriteString("insert into ")
 	qry_sb.WriteString(tq.Table)
 	qry_sb.WriteString("(")
-	qry_sb.WriteString(tq.Fields.Columns)
+	qry_sb.WriteString(tq.SetFields.Columns)
 	qry_sb.WriteString(") values (")
-	qry_sb.WriteString(tq.Fields.Placeholders)
-	qry_sb.WriteString(")")
-	qry_sb.WriteString(" ")
+	qry_sb.WriteString(tq.SetFields.Placeholders)
+	qry_sb.WriteString(") ")
 	qry_sb.WriteString(add+";")
 	tq.qry_custom = qry_sb.String()
+}
+
+func (tq *TagQuery) FormInsertReturn() {
+	if len(tq.qry_insert) == 0 {
+		var qry_sb strings.Builder
+		qry_sb.WriteString("insert into ")
+		qry_sb.WriteString(tq.Table)
+		qry_sb.WriteString("(")
+		qry_sb.WriteString(tq.SetFields.Columns)
+		qry_sb.WriteString(") values (")
+		qry_sb.WriteString(tq.SetFields.Placeholders)
+		qry_sb.WriteString(") on conflict do nothing returning ")
+		qry_sb.WriteString(tq.GetFields.Columns)
+		qry_sb.WriteString(";")
+		tq.qry_insert = qry_sb.String()
+	}
 }
 
 func (tq *TagQuery) Insert() error {
 	tq.formInsert()
 	_, err := dbpool.Exec(context.Background(), tq.qry_insert, tq.GetReflectedMembers()...)
+	return err
+}
+
+func (tq *TagQuery) DeleteID(id uint64) error {
+	_, err := dbpool.Exec(context.Background(), fmt.Sprintf("delete from %s where id = $1;", tq.Table), id)
+	return err
+}
+
+func (tq *TagQuery) DeleteWhere(where string) error {
+	return DeleteWhere(tq.Table, where)
+}
+
+func DeleteWhere(table, where string) error {
+	_, err := dbpool.Exec(context.Background(), fmt.Sprintf("delete from %s %s;", table, where))
 	return err
 }
 
@@ -231,11 +380,18 @@ func (tq *TagQuery) InsertGetID() (uint64, error) {
 	return id, err
 }
 
+func (tq *TagQuery) InsertGetFields() (interface{}, error) {
+	tq.FormInsertReturn()
+	i, addr_slice := tq.GetReflectedAddr()
+	err := dbpool.QueryRow(context.Background(), tq.qry_insert, tq.GetReflectedMembers()...).Scan(addr_slice...)
+	return i.Interface(), err
+}
+
 func (tq *TagQuery) formSelect() {
 	if len(tq.qry_select) == 0 {
 		var qry_sb strings.Builder
 		qry_sb.WriteString("select ")
-		qry_sb.WriteString(tq.Fields.Columns)
+		qry_sb.WriteString(tq.GetFields.Columns)
 		qry_sb.WriteString(" from ")
 		qry_sb.WriteString(tq.Table+";")
 		tq.qry_select = qry_sb.String()
@@ -244,8 +400,10 @@ func (tq *TagQuery) formSelect() {
 
 func (tq *TagQuery) formSelectCustom(add string) {
 	var qry_sb strings.Builder
-	qry_sb.WriteString("select ")
-	qry_sb.WriteString(tq.Fields.Columns)
+  qry_sb.WriteString("select ")
+  //fmt.Printf("%#v\n", tq.GetFields)
+  //fmt.Printf("%#v\n", tq.GetFields.Columns)
+	qry_sb.WriteString(tq.GetFields.Columns)
 	qry_sb.WriteString(" from ")
 	qry_sb.WriteString(tq.Table)
 	qry_sb.WriteString(" ")
@@ -292,7 +450,7 @@ func (tq *TagQuery) SelectByID(id uint64) (interface{}, error) {
 
 func (tq *TagQuery) SelectCustom(custom string, args ...interface{}) ([]interface{}, error) {
 	tq.formSelectCustom(custom)
-	return tq.SelectCommon(tq.qry_custom, args)
+	return tq.SelectCommon(tq.qry_custom, args...)
 }
 
 /*produces error, when QueryTag has ignored fields*/
@@ -301,10 +459,66 @@ func (tq *TagQuery) SelectAll() ([]interface{}, error) {
 	return tq.SelectCommon(tq.qry_custom)
 }
 
+//SELECT select_list FROM table_expression [ ORDER BY ... ] [ LIMIT { number | ALL } ] [ OFFSET number ] order nicht vergessen sonst willkurlich
+//SELECT ... FROM fdt WHERE c1 IN (1, 2, 3)
+/*
+SELECT ... FROM fdt WHERE c1 IN (SELECT c1 FROM t2)
+SELECT ... FROM fdt WHERE c1 IN (SELECT c3 FROM t2 WHERE c2 =
+fdt.c1 + 10)
+SELECT ... FROM fdt WHERE c1 BETWEEN (SELECT c3 FROM t2 WHERE c2 =
+fdt.c1 + 10) AND 100
+*/
+
+/*Never forget to use this function with a pointer*/
+func GetReflectedAddrOf(v interface{}) (reflect.Value, []interface{}) {
+	s := reflect.ValueOf(v).Elem()
+	st := s.Type()
+  addr_slice := make([]interface{}, 0)
+
+	for i := 0; i < st.NumField(); i++ {
+		tag := st.Field(i).Tag.Get(struct_tag)
+		if tag == "-" || len(tag) == 0 {
+			continue
+		}
+		field := s.Field(i)
+		if field.CanAddr() {
+			addr_slice = append(addr_slice, field.Addr().Interface())
+	  }
+  }
+	return s, addr_slice
+}
+
+/*Never forget to use this function with a pointer*/
+func SelectWithSecondary(v interface{}, qry string, args ...interface{}) ([]interface{}, error) {
+	abp := []interface{}{}
+	rows, err := dbpool.Query(context.Background(), qry, args...)
+	if err != nil {
+    //panic(err)
+		return abp, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		i, addr_slice := GetReflectedAddrOf(v)
+		err = rows.Scan(addr_slice...)
+		if err != nil {
+      //panic(err)
+			return abp, err
+		}
+		abp = append(abp, i.Interface())
+	}
+	err = rows.Err()
+	if err != nil {
+    //panic(err)
+		return abp, err
+	}
+	return abp, nil
+}
+
 func (tq *TagQuery) SelectCommon(qry string, args ...interface{}) ([]interface{}, error) {
 	abp := []interface{}{}
-	rows, err := dbpool.Query(context.Background(), qry, args)
+	rows, err := dbpool.Query(context.Background(), qry, args...)
 	if err != nil {
+    //panic(err)
 		return abp, err
 	}
 	defer rows.Close()
@@ -312,12 +526,14 @@ func (tq *TagQuery) SelectCommon(qry string, args ...interface{}) ([]interface{}
 		i, addr_slice := tq.GetReflectedAddr()
 		err = rows.Scan(addr_slice...)
 		if err != nil {
+      //panic(err)
 			return abp, err
 		}
 		abp = append(abp, i.Interface())
 	}
 	err = rows.Err()
 	if err != nil {
+    //panic(err)
 		return abp, err
 	}
 	return abp, nil
@@ -328,7 +544,7 @@ func (tq *TagQuery) Update(where string) error {
 	cnt_sb.WriteString("update ")
 	cnt_sb.WriteString(tq.Table)
 	cnt_sb.WriteString(" set ")
-	cnt_sb.WriteString(tq.Fields.Updates)
+	cnt_sb.WriteString(tq.SetFields.Updates)
 	if len(where) > 0 {
 		cnt_sb.WriteString(where)
 	}
@@ -354,7 +570,7 @@ func (tq *TagQuery) UpdateFieldWith(field string, where string, args ...interfac
 
 func (tq *TagQuery) Count(where string) (uint64, error) {
 	var cnt_sb strings.Builder
-	cnt_sb.WriteString("SELECT COUNT(*) FROM ")
+	cnt_sb.WriteString("select count(*) from ")
 	cnt_sb.WriteString(tq.Table)
 	if len(where) > 0 {
 		cnt_sb.WriteString(where)
@@ -366,4 +582,19 @@ func (tq *TagQuery) Count(where string) (uint64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+func (tq *TagQuery) FieldExists(field string, arg interface{}) (bool, error) {
+	var cnt_sb strings.Builder
+	cnt_sb.WriteString("select exists(select 1 from ")
+	cnt_sb.WriteString(tq.Table)
+	cnt_sb.WriteString(" where ")
+	cnt_sb.WriteString(field)
+	cnt_sb.WriteString("=$1) as \"exists\";")
+	var exist bool
+	err := dbpool.QueryRow(context.Background(), cnt_sb.String(), arg).Scan(&exist)
+	if err != nil {
+		return false, err
+	}
+	return exist, nil
 }
