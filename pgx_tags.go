@@ -518,7 +518,7 @@ func (tq *TagQuery) SelectCommon(qry string, args ...interface{}) ([]interface{}
 	abp := []interface{}{}
 	rows, err := dbpool.Query(context.Background(), qry, args...)
 	if err != nil {
-    //panic(err)
+    panic(err)
 		return abp, err
 	}
 	defer rows.Close()
@@ -526,14 +526,14 @@ func (tq *TagQuery) SelectCommon(qry string, args ...interface{}) ([]interface{}
 		i, addr_slice := tq.GetReflectedAddr()
 		err = rows.Scan(addr_slice...)
 		if err != nil {
-      //panic(err)
+      panic(err)
 			return abp, err
 		}
 		abp = append(abp, i.Interface())
 	}
 	err = rows.Err()
 	if err != nil {
-    //panic(err)
+    panic(err)
 		return abp, err
 	}
 	return abp, nil
@@ -553,7 +553,7 @@ func (tq *TagQuery) Update(where string) error {
 	return err
 }
 
-func (tq *TagQuery) UpdateFieldWith(field string, where string, args ...interface{},) error {
+func (tq *TagQuery) UpdateFieldWith(field string, where string, args ...interface{}) error {
 	var cnt_sb strings.Builder
 	cnt_sb.WriteString("update ")
 	cnt_sb.WriteString(tq.Table)
@@ -568,17 +568,19 @@ func (tq *TagQuery) UpdateFieldWith(field string, where string, args ...interfac
 	return err
 }
 
-func (tq *TagQuery) Count(where string) (uint64, error) {
+func (tq *TagQuery) Count(where string, args ...interface{}) (uint64, error) {
 	var cnt_sb strings.Builder
 	cnt_sb.WriteString("select count(*) from ")
 	cnt_sb.WriteString(tq.Table)
 	if len(where) > 0 {
+    cnt_sb.WriteString(" ")
 		cnt_sb.WriteString(where)
 	}
 	cnt_sb.WriteString(";")
 	var count uint64
-	err := dbpool.QueryRow(context.Background(), cnt_sb.String()).Scan(&count)
+	err := dbpool.QueryRow(context.Background(), cnt_sb.String(),  args...).Scan(&count)
 	if err != nil {
+    panic(err)
 		return 0, err
 	}
 	return count, nil
